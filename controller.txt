@@ -1,0 +1,38 @@
+using System;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Web.Http;
+using Common.Api.Infrastructure;
+using SharedContent.Data;
+using SharedContent.Services;
+
+namespace SharedContent.Controllers
+{
+    public class BaseController<TFileEntity> : ApiController
+        where TFileEntity:IEntityBaseFile
+    {
+        private readonly IBaseService<TFileEntity> _service;
+
+        public BaseController(IBaseService<TFileEntity> service)
+        {
+            _service = service; 
+        }
+
+        /// <summary>
+        /// Returns file by id
+        /// </summary>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        public virtual HttpResponseMessage Get(int id)
+        {
+            var response = Request.CreateResponse();
+            response.Content = new PushStreamContent(
+                (Action<Stream, HttpContent, TransportContext>)((stream,content,context)=>_service.WriteToStream(id, stream)),
+                new MediaTypeHeaderValue(_service.GetContentType(id))
+                );
+            return response;
+        }
+    }
+}

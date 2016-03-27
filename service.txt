@@ -1,0 +1,29 @@
+using System.IO;
+using Common.Api.Infrastructure;
+using SharedContent.Data;
+
+namespace SharedContent.Services
+{
+    public class BaseService<TFileEntity> : IBaseService<TFileEntity>
+        where TFileEntity: IEntityBaseFile 
+    {
+        private readonly IFileRepository<TFileEntity> _dataRepository;
+
+        public BaseService(
+            IFileRepository<TFileEntity> dataRepository
+        )
+        {
+            _dataRepository = dataRepository;
+        }
+
+        public void WriteToStream(int id, Stream outputStream)
+        {
+            _dataRepository.WriteToStream(id, outputStream);
+        }
+
+        public string GetContentType(int id)
+        {
+            return _dataRepository.GetContentType(id);
+        }
+    }
+}

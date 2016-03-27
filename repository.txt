@@ -1,0 +1,100 @@
+using System;
+using System.Data.Entity;
+using System.Data.Entity.Infrastructure;
+using System.Data.SqlClient;
+using System.Data.SqlTypes;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Transactions;
+using System.Web;
+using SharedContent.Data;
+
+namespace Common.Api.Infrastructure
+{
+    public class FileRepository<TDbContext, TFileEntity> : IFileRepository<TFileEntity>
+        where TDbContext : DbContext 
+        where TFileEntity : class, IEntityBaseFile
+    {
+        private readonly TDbContext _context;
+        private readonly Lazy<DbSet<TFileEntity>> _dbSet;
+
+        private string TableName
+        {
+            get {
+                return Regex.Match(
+                    (_context as IObjectContextAdapter).ObjectContext.CreateObjectSet<TFileEntity>().ToTraceString(),
+                    @"\s+FROM\s+(.+)\s+AS\s+"
+                ).Groups[1].Value;
+            }
+        }
+
+        public FileRepository(TDbContext context)
+        {
+            _context = context;
+            _dbSet = new Lazy<DbSet<TFileEntity>>(() => _context.Set<TFileEntity>());
+        }
+
+        public string GetContentType(int id)
+        {
+            return _dbSet.Value.Where(e=>e.Id==id).Select(f=>f.ContentType).FirstOrDefault();
+        }
+
+        public void WriteToStream(int id, Stream outputStream)
+        {
+            var options = new TransactionOptions
+            {
+                IsolationLevel = IsolationLevel.ReadCommitted,
+                Timeout = TransactionManager.MaximumTimeout
+            };
+            using (var scope = new TransactionScope(TransactionScopeOption.Required, options))
+
+            {
+                var data1 = _context.Database.SqlQuery<FileEntityData>(
+                    @"
+                    SELECT
+                        ContentType,
+                        Data.PathName() AS 'Path',
+                        GET_FILESTREAM_TRANSACTION_CONTEXT() as 'TransactionContext'
+                    FROM " + TableName + @"
+                    WHERE [Id] = @id
+                ",
+                    new SqlParameter("id", id)
+                    );
+                var data = data1.First();
+                using (var _sqlStream = new SqlFileStream(data.Path, data.TransactionContext,
+                    FileAccess.Read))
+                {
+                    try
+                    {
+                        var buffer = new byte[65536];
+                        var length = (int) _sqlStream.Length;
+                        var bytesRead = 1;
+                        while (length > 0 && bytesRead > 0)
+                        {
+                            bytesRead = _sqlStream.Read(buffer, 0, Math.Min(length, buffer.Length));
+                            outputStream.Write(buffer, 0, bytesRead);
+                            
+                            length -= bytesRead;
+                        }
+                    }
+                    catch (HttpException ex)
+                    {
+                        return;
+                    }
+                    finally
+                    {
+                        outputStream.Close();
+
+                    }
+                }
+            }
+        }
+
+        private class FileEntityData
+        {
+            public string Path { get; set; }
+            public byte[] TransactionContext { get; set; }
+        }
+    }
+}
